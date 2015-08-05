@@ -2,7 +2,8 @@ var querystring = require("querystring");
 var https = require('https');
 var _ = require('underscore');
 var crypto = require('crypto');
-
+var ProxyAgent = require('proxy-agent');
+ 
 _.mixin({
   // compact for objects
   compactObject: function(to_clean) {
@@ -14,7 +15,7 @@ _.mixin({
   }
 });
 
-var Bitstamp = function(key, secret, client_id, nonce_generator) {
+var Bitstamp = function(key, secret, client_id, nonce_generator, options) {
   this.key = key;
   this.secret = secret;
   this.client_id = client_id;
@@ -23,24 +24,33 @@ var Bitstamp = function(key, secret, client_id, nonce_generator) {
     return now.getTime();
   });
 
+  this.url = (options&&options.apiUrl)||"www.bitstamp.net";
+  var proxyUrl = (options&&options.proxyUrl);
+  if(proxyUrl) {
+    this.agent = new ProxyAgent(proxyUrl)
+  }
+
   _.bindAll(this);
 };
 
 Bitstamp.prototype._request = function(method, path, data, callback, args) {
   
   var options = {
-    host: 'www.bitstamp.net',
+    host: this.url,
     path: path,
     method: method,
     headers: {
       'User-Agent': 'Mozilla/4.0 (compatible; Bitstamp node.js client)'
-    }
+    },
+    agent: this.agent
   };
 
   if(method === 'post') {
     options.headers['Content-Length'] = data.length;
     options.headers['content-type'] = 'application/x-www-form-urlencoded';
   }
+
+  var self = this;
 
   var req = https.request(options, function(res) {
     res.setEncoding('utf8');
@@ -53,12 +63,11 @@ Bitstamp.prototype._request = function(method, path, data, callback, args) {
       try {
         json = JSON.parse(buffer);
       } catch (err) {
-        if(process.env.LOG_BITSTAMP)
-          console.log("[ERROR] ["+path+"] bitstamp.parsing:",buffer);
         return callback(err);
       }
-      if(json&&json.error)
+      if(json&&json.error) {
         return callback(json);
+      }
       callback(null, json);
     });
   });
