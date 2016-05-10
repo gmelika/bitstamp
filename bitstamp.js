@@ -59,6 +59,9 @@ Bitstamp.prototype._request = function(method, path, data, callback, args) {
       buffer += data;
     });
     res.on('end', function() {
+      if (res.statusCode !== 200) {
+        return callback(new Error('Bitstamp error ' + res.statusCode + ': ' + buffer));
+      }
       var json;
       try {
         json = JSON.parse(buffer);
@@ -87,15 +90,36 @@ Bitstamp.prototype._request = function(method, path, data, callback, args) {
 
 };
 
+// if you call new Date to fast it will generate
+// the same ms, helper to make sure the nonce is
+// truly unique (supports up to 999 calls per ms).
+Bitstamp.prototype._generateNonce = function() {
+  var now = new Date().getTime();
+
+  if(now !== this.last)
+    this.nonceIncr = -1;    
+
+  this.last = now;
+  this.nonceIncr++;
+
+  // add padding to nonce incr
+  // @link https://stackoverflow.com/questions/6823592/numbers-in-the-form-of-001
+  var padding = 
+    this.nonceIncr < 10 ? '000' : 
+      this.nonceIncr < 100 ? '00' :
+        this.nonceIncr < 1000 ?  '0' : '';
+  return now + padding + this.nonceIncr;
+}
+
 Bitstamp.prototype._get = function(action, callback, args) {
   args = _.compactObject(args);
-  var path = '/api/' + action + '/?' + querystring.stringify(args);
+  var path = '/api/' + action + (querystring.stringify(args) === '' ? '/' : '/?') + querystring.stringify(args);
   this._request('get', path, undefined, callback, args);
 };
 
 Bitstamp.prototype._post = function(action, callback, args) {
   if(!this.key || !this.secret || !this.client_id)
-    return callback('Must provide key, secret and client ID to make this API request.');
+    return callback(new Error('Must provide key, secret and client ID to make this API request.'));
 
   var path = '/api/' + action + '/';
 
@@ -138,7 +162,12 @@ Bitstamp.prototype.order_book = function(group, callback) {
     callback = group;
     group = undefined;
   }
-  this._get('order_book', callback, {group: group});
+  var options;
+  if(typeof limit === 'object')
+    options = group;
+  else
+    options = {group: group};
+  this._get('order_book', callback, options);
 }
 
 Bitstamp.prototype.bitinstant = function(callback) {
@@ -156,6 +185,10 @@ Bitstamp.prototype.eur_usd = function(callback) {
 
 Bitstamp.prototype.balance = function(callback) {
   this._post('balance', callback);
+}
+
+Bitstamp.prototype.order_status = function(id, callback) {
+  this._post('order_status', callback, {id: id});
 }
 
 Bitstamp.prototype.user_transactions = function(params, callback) {
@@ -216,10 +249,6 @@ Bitstamp.prototype.check_code = function(code, callback) {
 }
 Bitstamp.prototype.redeem_code = function(code, callback) {
   this._post('redeem_code', callback, {code: code});
-}
-
-Bitstamp.prototype.order_status = function(id, callback) {
-  this._post('order_status', callback, {id: id});
 }
 
 module.exports = Bitstamp;
